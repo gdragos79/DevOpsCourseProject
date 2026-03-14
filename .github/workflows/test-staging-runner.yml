@@ -8,18 +8,22 @@ jobs:
     runs-on: [self-hosted, linux, x64, staging]
 
     steps:
-      - name: Show basic info
+      - name: Show runner identity
         run: |
+          echo "Runner is executing this job"
           whoami
           hostname
           pwd
           uname -a
 
-      - name: Check Docker
+      - name: Check Docker access
         run: |
           docker --version
-<<<<<<< HEAD
           docker compose version
-=======
-          docker compose version
->>>>>>> 84e63a8b02521e06ccf37f797ece518f0be5c18c
+          docker ps
+
+      - name: Check app folders
+        run: |
+          ls -la ~
+          ls -la ~/myproject || true
+          ls -la ~/myproject/app || true
