@@ -18,4 +18,8 @@ jobs:
       - name: Check Docker
         run: |
           docker --version
+<<<<<<< HEAD
           docker compose version
+=======
+          docker compose version
+>>>>>>> 84e63a8b02521e06ccf37f797ece518f0be5c18c
