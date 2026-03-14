@@ -6,6 +6,13 @@ on:
       - production
     tags:
       - 'v*'
+    paths:
+      - 'apps/backend/**'
+      - 'apps/frontend/**'
+      - '.github/workflows/build-release-images.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'docker-compose.yml'
   workflow_dispatch:
 
 permissions:
