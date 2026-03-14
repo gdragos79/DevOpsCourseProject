@@ -1,3 +1,4 @@
+// apps/backend/index.js
 const express = require('express');
 const cors = require('cors');
 const { Client } = require('pg');
@@ -9,65 +10,46 @@ app.use(cors());
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 function getDbConfig() {
-  const {
-    DB_HOST,
-    DB_PORT = '5432',
-    DB_USER,
-    DB_PASSWORD,
-    DB_NAME,
-  } = process.env;
-
+  const { DB_HOST, DB_PORT = '5432', DB_USER, DB_PASSWORD, DB_NAME } = process.env;
   return {
-    DB_HOST,
-    DB_PORT,
-    DB_USER,
-    DB_PASSWORD,
-    DB_NAME,
+    host: DB_HOST,
+    port: parseInt(DB_PORT, 10),
+    user: DB_USER,
+    password: DB_PASSWORD,
+    database: DB_NAME,
+    ssl: false
   };
 }
 
-function hasDbEnv(cfg) {
-  return Boolean(cfg.DB_HOST && cfg.DB_USER && cfg.DB_NAME);
+function hasDbEnv() {
+  const { DB_HOST, DB_USER, DB_NAME } = process.env;
+  return Boolean(DB_HOST && DB_USER && DB_NAME);
 }
 
-function createClient(cfg) {
-  return new Client({
-    host: cfg.DB_HOST,
-    port: parseInt(cfg.DB_PORT, 10),
-    user: cfg.DB_USER,
-    password: cfg.DB_PASSWORD,
-    database: cfg.DB_NAME,
-    ssl: false,
-  });
-}
-
-async function withDb(work) {
-  const cfg = getDbConfig();
-
-  if (!hasDbEnv(cfg)) {
-    const err = new Error('missing DB_* envs');
-    err.statusCode = 503;
-    throw err;
-  }
-
-  const client = createClient(cfg);
+async function withClient(fn) {
+  const client = new Client(getDbConfig());
   await client.connect();
-
   try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        age INTEGER NULL,
-        email VARCHAR(255) NOT NULL UNIQUE,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    return await work(client);
+    return await fn(client);
   } finally {
     await client.end();
   }
+}
+
+async function ensureUsersTable(client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      age INTEGER NOT NULL,
+      email TEXT NOT NULL
+    );
+  `);
+
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_name_age_email_unique_idx
+    ON users (name, age, email);
+  `);
 }
 
 app.get(['/api/health', '/health'], (req, res) => {
@@ -75,87 +57,75 @@ app.get(['/api/health', '/health'], (req, res) => {
 });
 
 app.get(['/api/db', '/db'], async (req, res) => {
-  const cfg = getDbConfig();
-
-  if (!hasDbEnv(cfg)) {
+  if (!hasDbEnv()) {
     return res.status(200).json({ db: 'skipped', reason: 'missing DB_* envs' });
   }
 
   try {
-    const client = createClient(cfg);
-    await client.connect();
-    const r = await client.query('SELECT 1 AS ok');
-    await client.end();
-    res.json({ db: 'ok', result: r.rows[0] });
+    const result = await withClient(async (client) => {
+      await ensureUsersTable(client);
+      const r = await client.query('SELECT 1 AS ok');
+      return r.rows[0];
+    });
+
+    res.json({ db: 'ok', result });
   } catch (err) {
     res.status(500).json({ db: 'error', message: err.message });
   }
 });
 
-app.get(['/api/all', '/all'], async (req, res) => {
+app.get('/api/all', async (req, res) => {
+  if (!hasDbEnv()) {
+    return res.status(500).json({ error: 'Database configuration is missing' });
+  }
+
   try {
-    const rows = await withDb(async (client) => {
-      const result = await client.query(
+    const users = await withClient(async (client) => {
+      await ensureUsersTable(client);
+      const r = await client.query(
         'SELECT id, name, age, email FROM users ORDER BY id ASC'
       );
-      return result.rows;
+      return r.rows;
     });
 
-    res.json(rows);
+    res.json(users);
   } catch (err) {
-    res.status(err.statusCode || 500).json({
-      error: 'failed_to_fetch_users',
-      message: err.message,
-    });
+    res.status(500).json({ error: 'Failed to fetch users', message: err.message });
   }
 });
 
-app.post(['/api/form', '/form'], async (req, res) => {
-  const { name, age, email } = req.body || {};
-
-  if (!name || !email) {
-    return res.status(400).json({
-      error: 'validation_error',
-      message: 'name and email are required',
-    });
+app.post('/api/form', async (req, res) => {
+  if (!hasDbEnv()) {
+    return res.status(500).json({ error: 'Database configuration is missing' });
   }
 
-  const parsedAge = age === null || age === undefined || age === '' ? null : Number(age);
-  if (parsedAge !== null && Number.isNaN(parsedAge)) {
-    return res.status(400).json({
-      error: 'validation_error',
-      message: 'age must be a number or empty',
-    });
+  const { name, age, email } = req.body || {};
+
+  if (!name || age === undefined || age === null || !email) {
+    return res.status(400).json({ error: 'name, age and email are required' });
+  }
+
+  const parsedAge = parseInt(age, 10);
+  if (Number.isNaN(parsedAge)) {
+    return res.status(400).json({ error: 'age must be a valid integer' });
   }
 
   try {
-    const created = await withDb(async (client) => {
-      const result = await client.query(
-        `
-          INSERT INTO users (name, age, email)
-          VALUES ($1, $2, $3)
-          RETURNING id, name, age, email
-        `,
-        [name, parsedAge, email]
+    const inserted = await withClient(async (client) => {
+      await ensureUsersTable(client);
+      const r = await client.query(
+        'INSERT INTO users (name, age, email) VALUES ($1, $2, $3) RETURNING id, name, age, email',
+        [String(name).trim(), parsedAge, String(email).trim()]
       );
-      return result.rows[0];
+      return r.rows[0];
     });
 
-    res.status(201).json(created);
+    res.status(201).json(inserted);
   } catch (err) {
-    const message = (err && err.message) || 'unknown error';
-
-    if (err && err.code === '23505') {
-      return res.status(409).json({
-        error: 'duplicate_email',
-        message: 'a user with this email already exists',
-      });
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'The user already exists' });
     }
-
-    res.status(err.statusCode || 500).json({
-      error: 'failed_to_create_user',
-      message,
-    });
+    return res.status(500).json({ error: 'Failed to create user', message: err.message });
   }
 });
 
