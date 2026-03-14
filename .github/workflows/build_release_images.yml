@@ -15,8 +15,8 @@ permissions:
 env:
   REGISTRY: ghcr.io
   OWNER_LC: ${{ github.repository_owner }}
-  BACKEND_IMAGE: myprojectappprod-backend
-  FRONTEND_IMAGE: myprojectappprod-frontend
+  BACKEND_IMAGE: devopscourseproject-backend
+  FRONTEND_IMAGE: devopscourseproject-frontend
 
 jobs:
   build-and-push:
