@@ -1,0 +1,105 @@
+name: Build release images
+
+on:
+  push:
+    branches:
+      - production
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER_LC: ${{ github.repository_owner }}
+  BACKEND_IMAGE: myprojectappprod-backend
+  FRONTEND_IMAGE: myprojectappprod-frontend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner_lc="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          backend_repo="${{ env.REGISTRY }}/${owner_lc}/${{ env.BACKEND_IMAGE }}"
+          frontend_repo="${{ env.REGISTRY }}/${owner_lc}/${{ env.FRONTEND_IMAGE }}"
+          short_sha="${GITHUB_SHA::7}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+            backend_tags="${backend_repo}:${version},${backend_repo}:latest"
+            frontend_tags="${frontend_repo}:${version},${frontend_repo}:latest"
+          else
+            backend_tags="${backend_repo}:latest,${backend_repo}:sha-${short_sha}"
+            frontend_tags="${frontend_repo}:latest,${frontend_repo}:sha-${short_sha}"
+          fi
+
+          echo "backend_repo=${backend_repo}" >> "$GITHUB_OUTPUT"
+          echo "frontend_repo=${frontend_repo}" >> "$GITHUB_OUTPUT"
+          echo "backend_tags=${backend_tags}" >> "$GITHUB_OUTPUT"
+          echo "frontend_tags=${frontend_tags}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          push: true
+          tags: ${{ steps.vars.outputs.backend_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=${{ env.BACKEND_IMAGE }}
+            org.opencontainers.image.description=Backend image for Final Project monorepo
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/frontend
+          file: ./apps/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.vars.outputs.frontend_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=${{ env.FRONTEND_IMAGE }}
+            org.opencontainers.image.description=Frontend image for Final Project monorepo
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Workflow summary
+        run: |
+          {
+            echo "## Built images"
+            echo ""
+            echo "Backend tags:"
+            echo "- ${{ steps.vars.outputs.backend_tags }}"
+            echo ""
+            echo "Frontend tags:"
+            echo "- ${{ steps.vars.outputs.frontend_tags }}"
+          } >> "$GITHUB_STEP_SUMMARY"
