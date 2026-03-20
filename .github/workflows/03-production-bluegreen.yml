@@ -1,0 +1,94 @@
+name: Pipeline 3 - Production Blue Green
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag built by Pipeline 2, for example build-20260317-14'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check out repository tools
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key for all remote hosts
+        env:
+          PROXY_SSH_KEY: ${{ secrets.PROXY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$PROXY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.PROXY_SSH_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.APP_BLUE_SSH_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.APP_GREEN_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Detect inactive color
+        id: detect
+        env:
+          PROXY_SSH_HOST: ${{ secrets.PROXY_SSH_HOST }}
+          PROXY_SSH_USER: ${{ secrets.PROXY_SSH_USER }}
+        run: |
+          ACTIVE=$(ssh ${PROXY_SSH_USER}@${PROXY_SSH_HOST} "if grep -q 'blue.conf' /etc/nginx/upstreams/active.conf; then echo blue; else echo green; fi")
+          if [ "$ACTIVE" = "blue" ]; then TARGET=green; else TARGET=blue; fi
+          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy selected release to idle environment
+        env:
+          TARGET_COLOR: ${{ steps.detect.outputs.target }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APP_BLUE_SSH_HOST: ${{ secrets.APP_BLUE_SSH_HOST }}
+          APP_BLUE_SSH_USER: ${{ secrets.APP_BLUE_SSH_USER }}
+          APP_GREEN_SSH_HOST: ${{ secrets.APP_GREEN_SSH_HOST }}
+          APP_GREEN_SSH_USER: ${{ secrets.APP_GREEN_SSH_USER }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/deploy-target.sh
+
+      - name: Run remote smoke tests on idle environment
+        env:
+          TARGET_COLOR: ${{ steps.detect.outputs.target }}
+          APP_BLUE_SSH_HOST: ${{ secrets.APP_BLUE_SSH_HOST }}
+          APP_BLUE_SSH_USER: ${{ secrets.APP_BLUE_SSH_USER }}
+          APP_GREEN_SSH_HOST: ${{ secrets.APP_GREEN_SSH_HOST }}
+          APP_GREEN_SSH_USER: ${{ secrets.APP_GREEN_SSH_USER }}
+        run: bash scripts/remote-healthcheck.sh
+
+      - name: Verify limited passwordless sudo for proxy cutover helper
+        env:
+          PROXY_SSH_HOST: ${{ secrets.PROXY_SSH_HOST }}
+          PROXY_SSH_USER: ${{ secrets.PROXY_SSH_USER }}
+        run: |
+          if ssh ${PROXY_SSH_USER}@${PROXY_SSH_HOST} 'sudo -n /usr/local/bin/myproject-switch-proxy blue >/dev/null'; then
+            echo "Proxy host supports the limited passwordless sudo helper for nginx cutover."
+          else
+            echo "The proxy host is missing the expected limited sudo helper authorization."
+            echo "Configure /usr/local/bin/myproject-switch-proxy and allow deploy to run only that command via sudoers."
+            exit 1
+          fi
+
+      - name: Switch proxy to new environment
+        env:
+          TARGET_COLOR: ${{ steps.detect.outputs.target }}
+          PROXY_SSH_HOST: ${{ secrets.PROXY_SSH_HOST }}
+          PROXY_SSH_USER: ${{ secrets.PROXY_SSH_USER }}
+        run: bash scripts/switch-proxy.sh
+
+      - name: Monitor for rollback window
+        env:
+          TARGET_COLOR: ${{ steps.detect.outputs.target }}
+          PREVIOUS_COLOR: ${{ steps.detect.outputs.active }}
+          PROXY_SSH_HOST: ${{ secrets.PROXY_SSH_HOST }}
+          PROXY_SSH_USER: ${{ secrets.PROXY_SSH_USER }}
+          PUBLIC_FRONTEND_URL: ${{ secrets.PUBLIC_FRONTEND_URL }}
+          PUBLIC_BACKEND_HEALTH_URL: ${{ secrets.PUBLIC_BACKEND_HEALTH_URL }}
+        run: bash scripts/monitor-rollback.sh
