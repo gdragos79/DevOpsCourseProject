@@ -1,93 +1,90 @@
+// apps/frontend/src/components/PostUser.jsx
 import { useState } from "react";
 import { api } from "../lib/api";
 
-const PostUser = () => {
-  const [user, setUser] = useState({ name: "", age: "", email: "" });
-  const [loading, setLoading] = useState(false);
+export default function PostUser() {
+  const [formData, setFormData] = useState({
+    name: "",
+    age: "",
+    email: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
 
-  const createUser = async () => {
-    try {
-      setLoading(true);
-
-      // Coerce age to a number if possible (backend often expects a number)
-      const payload = {
-        ...user,
-        age: user.age === "" ? null : Number.isNaN(Number(user.age)) ? user.age : Number(user.age),
-      };
-
-      const res = await api.post("/api/form", payload, {
-        headers: { "Content-Type": "application/json" },
-      });
-
-      setUser({ name: "", age: "", email: "" });
-      alert("User Created:\n" + JSON.stringify(res.data, null, 2));
-    } catch (err) {
-      console.error("Create user failed:", err);
-      alert("Failed to create user: " + (err?.message || "unknown error"));
-    } finally {
-      setLoading(false);
-    }
+  const handleChange = (e) => {
+    setFormData((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
   };
 
-  const onChangeForm = (e) => {
-    const { name, value } = e.target;
-    setUser((u) => ({ ...u, [name]: value }));
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      await api.post("/api/form", {
+        name: formData.name,
+        age: Number(formData.age),
+        email: formData.email,
+      });
+
+      alert("User created successfully");
+      setFormData({ name: "", age: "", email: "" });
+    } catch (error) {
+      const apiMessage = error?.response?.data?.error;
+      if (error?.response?.status === 409 && apiMessage === "The user already exists") {
+        alert("The user already exists");
+      } else {
+        alert(`Failed to create user: ${apiMessage || error.message}`);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div>
-      <div>
+      <h1>Create User</h1>
+      <form onSubmit={handleSubmit}>
         <div>
-          <h1>Create User</h1>
-          <form onSubmit={(e) => e.preventDefault()}>
-            <div>
-              <div>
-                <label htmlFor="name">Name</label>
-                <input
-                  type="text"
-                  value={user.name}
-                  onChange={onChangeForm}
-                  name="name"
-                  id="name"
-                  placeholder="Name"
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label htmlFor="age">Age</label>
-                <input
-                  type="number"
-                  value={user.age}
-                  onChange={onChangeForm}
-                  name="age"
-                  id="age"
-                  placeholder="Age"
-                  min="0"
-                />
-              </div>
-            </div>
-            <div>
-              <div>
-                <label htmlFor="email">Email</label>
-                <input
-                  type="email"
-                  value={user.email}
-                  onChange={onChangeForm}
-                  name="email"
-                  id="email"
-                  placeholder="Email"
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-            <button type="button" onClick={createUser} disabled={loading}>
-              {loading ? "Creating..." : "Create"}
-            </button>
-          </form>
+          <label htmlFor="name">Name</label>
+          <input
+            id="name"
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            required
+          />
         </div>
-      </div>
+
+        <div>
+          <label htmlFor="age">Age</label>
+          <input
+            id="age"
+            name="age"
+            type="number"
+            value={formData.age}
+            onChange={handleChange}
+            required
+          />
+        </div>
+
+        <div>
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+          />
+        </div>
+
+        <button type="submit" disabled={submitting}>
+          {submitting ? "Creating..." : "Create User"}
+        </button>
+      </form>
     </div>
   );
-};
-
-export default PostUser;
+}
