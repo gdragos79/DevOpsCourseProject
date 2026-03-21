@@ -2,8 +2,6 @@
 set -euo pipefail
 : "${TARGET_COLOR:?TARGET_COLOR is required}"
 : "${PREVIOUS_COLOR:?PREVIOUS_COLOR is required}"
-: "${PUBLIC_FRONTEND_URL:?PUBLIC_FRONTEND_URL is required}"
-: "${PUBLIC_BACKEND_HEALTH_URL:?PUBLIC_BACKEND_HEALTH_URL is required}"
 
 if [[ "$TARGET_COLOR" != "blue" && "$TARGET_COLOR" != "green" ]]; then
   echo "TARGET_COLOR must be blue or green"
@@ -15,9 +13,15 @@ if [[ "$PREVIOUS_COLOR" != "blue" && "$PREVIOUS_COLOR" != "green" ]]; then
   exit 1
 fi
 
+FRONTEND_URL="${PUBLIC_FRONTEND_URL:-http://127.0.0.1/}"
+BACKEND_HEALTH_URL="${PUBLIC_BACKEND_HEALTH_URL:-http://127.0.0.1/api/health}"
+
+echo "Monitoring frontend URL: ${FRONTEND_URL}"
+echo "Monitoring backend health URL: ${BACKEND_HEALTH_URL}"
+
 failures=0
 for i in $(seq 1 10); do
-  if curl -fsSI "$PUBLIC_FRONTEND_URL" >/dev/null && curl -fsS "$PUBLIC_BACKEND_HEALTH_URL" >/dev/null; then
+  if curl -fsSI "$FRONTEND_URL" >/dev/null && curl -fsS "$BACKEND_HEALTH_URL" >/dev/null; then
     echo "Minute $i: healthy"
   else
     failures=$((failures + 1))
