@@ -106,3 +106,10 @@ The workflows must call only commands that really exist in the repository. Using
 
 ## Final note
 This reference sheet reflects the confirmed project state after validating script names, sudo behavior, proxy switching permissions, and the actual deployment layout. It should be used as the source of truth when adapting workflow files, helper scripts, and exam explanation material.
+
+
+## Validation workflow mapping
+- Feature branch -> `development`: `00-pr-development.yml`
+- `development` -> `staging`: `01-ci-validation.yml`
+- push to `staging`: `02-staging-deploy.yml`
+- manual production release: `03-production-bluegreen.yml`
