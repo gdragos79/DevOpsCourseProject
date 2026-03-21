@@ -154,3 +154,11 @@ The recommended proxy design has now been applied:
 2. `deploy` can run only that script without a password.
 
 The next improvement would be to mirror the same pattern for any other privileged proxy maintenance actions so the CI/CD model stays consistent.
+
+
+## Additional readiness update — today’s CI fixes included
+This pack now also includes the repo-side fixes needed to make Pipeline 1 runnable:
+- `apps/frontend/.eslintrc.cjs`
+- `apps/frontend/src/smoke.test.jsx`
+- a stronger backend health wait loop in `.github/workflows/01-ci-validation.yml`
+- a new fast PR validation workflow for pull requests into `development`
