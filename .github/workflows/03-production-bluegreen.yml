@@ -90,7 +90,7 @@ jobs:
         env:
           TARGET_COLOR: ${{ steps.detect.outputs.target }}
           PREVIOUS_COLOR: ${{ steps.detect.outputs.active }}
-          PUBLIC_FRONTEND_URL: ${{ vars.PUBLIC_FRONTEND_URL }}
-          PUBLIC_BACKEND_HEALTH_URL: ${{ vars.PUBLIC_BACKEND_HEALTH_URL }}
+          PUBLIC_FRONTEND_URL: ${{ vars.PUBLIC_FRONTEND_URL || secrets.PUBLIC_FRONTEND_URL }}
+          PUBLIC_BACKEND_HEALTH_URL: ${{ vars.PUBLIC_BACKEND_HEALTH_URL || secrets.PUBLIC_BACKEND_HEALTH_URL }}
         shell: bash
         run: bash scripts/monitor-rollback.sh
