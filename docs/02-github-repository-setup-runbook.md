@@ -42,3 +42,19 @@ In **Settings → Actions → General**:
 
 ## Step 7 — Verify GHCR package publishing
 The staging workflow pushes to `ghcr.io` using `GITHUB_TOKEN`, so package write permissions must be enabled. The package namespace must match the repository owner.
+
+
+## Additional branch protection update — two PR validation layers
+Configure branch protection so each promotion step has its own required status check.
+
+### Protect `development`
+Require the workflow job:
+- `Fast PR checks for development`
+
+This ensures feature branches cannot merge into `development` without passing the lighter CI checks.
+
+### Protect `staging`
+Require the workflow job:
+- `Frontend lint and tests, backend tests, health verification, Docker build validation`
+
+This ensures code cannot merge from `development` into `staging` without passing the stronger promotion checks.
