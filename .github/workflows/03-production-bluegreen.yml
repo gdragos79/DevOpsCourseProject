@@ -26,12 +26,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ACTIVE=$(if grep -q 'blue.conf' /etc/nginx/upstreams/active.conf; then echo blue; else echo green; fi)
+
+          ACTIVE=$(if grep -q 'blue.conf' /etc/nginx/upstreams/active.conf; then
+            echo blue
+          else
+            echo green
+          fi)
+
           if [ "$ACTIVE" = "blue" ]; then
             TARGET=green
           else
             TARGET=blue
           fi
+
           echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
@@ -62,18 +69,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          CURRENT_ACTIVE="${{ steps.detect.outputs.active }}"
+
           sudo -n /usr/local/bin/myproject-switch-proxy blue >/dev/null || {
             echo "The proxy runner host is missing the expected limited sudo helper authorization."
             echo "Configure /usr/local/bin/myproject-switch-proxy and allow deploy to run only that command via sudoers."
             exit 1
           }
-          sudo -n /usr/local/bin/myproject-switch-proxy "${{ steps.detect.outputs.active }}" >/dev/null
+
+          sudo -n /usr/local/bin/myproject-switch-proxy "$CURRENT_ACTIVE" >/dev/null
 
       - name: Switch proxy to new environment
         env:
           TARGET_COLOR: ${{ steps.detect.outputs.target }}
-          PROXY_SSH_HOST: localhost
-          PROXY_SSH_USER: ${{ secrets.PROXY_SSH_USER }}
         shell: bash
         run: bash scripts/switch-proxy.sh
 
@@ -81,9 +90,7 @@ jobs:
         env:
           TARGET_COLOR: ${{ steps.detect.outputs.target }}
           PREVIOUS_COLOR: ${{ steps.detect.outputs.active }}
-          PROXY_SSH_HOST: localhost
-          PROXY_SSH_USER: ${{ secrets.PROXY_SSH_USER }}
-          PUBLIC_FRONTEND_URL: ${{ secrets.PUBLIC_FRONTEND_URL }}
-          PUBLIC_BACKEND_HEALTH_URL: ${{ secrets.PUBLIC_BACKEND_HEALTH_URL }}
+          PUBLIC_FRONTEND_URL: ${{ vars.PUBLIC_FRONTEND_URL }}
+          PUBLIC_BACKEND_HEALTH_URL: ${{ vars.PUBLIC_BACKEND_HEALTH_URL }}
         shell: bash
         run: bash scripts/monitor-rollback.sh
