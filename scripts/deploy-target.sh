@@ -1,36 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
-: "${TARGET_COLOR:?TARGET_COLOR is required}"
-: "${RELEASE_TAG:?RELEASE_TAG is required}"
-: "${GHCR_USERNAME:?GHCR_USERNAME is required}"
-: "${GHCR_TOKEN:?GHCR_TOKEN is required}"
 
-if [ "$TARGET_COLOR" = "blue" ]; then
-  TARGET_HOST="$APP_BLUE_SSH_HOST"
-  TARGET_USER="$APP_BLUE_SSH_USER"
+SSH_KEY="${HOME}/.ssh/id_ed25519_bluegreen_orchestrator"
+APP_DIR="/home/deploy/myproject/app"
+ENV_FILE="${APP_DIR}/env/app.env"
+COMPOSE_FILE="${APP_DIR}/docker-compose.yml"
+
+BLUE_HOST="$(printf '%s' "${APP_BLUE_SSH_HOST:-}" | tr -d '\r\n')"
+BLUE_USER="$(printf '%s' "${APP_BLUE_SSH_USER:-deploy}" | tr -d '\r\n')"
+GREEN_HOST="$(printf '%s' "${APP_GREEN_SSH_HOST:-}" | tr -d '\r\n')"
+GREEN_USER="$(printf '%s' "${APP_GREEN_SSH_USER:-deploy}" | tr -d '\r\n')"
+TARGET_COLOR="$(printf '%s' "${TARGET_COLOR:-}" | tr -d '\r\n')"
+RELEASE_TAG="$(printf '%s' "${RELEASE_TAG:-}" | tr -d '\r\n')"
+GHCR_USERNAME_CLEAN="$(printf '%s' "${GHCR_USERNAME:-}" | tr -d '\r\n')"
+GHCR_TOKEN_CLEAN="$(printf '%s' "${GHCR_TOKEN:-}" | tr -d '\r\n')"
+
+if [[ "$TARGET_COLOR" == "blue" ]]; then
+  TARGET_HOST="$BLUE_HOST"
+  TARGET_USER="$BLUE_USER"
+elif [[ "$TARGET_COLOR" == "green" ]]; then
+  TARGET_HOST="$GREEN_HOST"
+  TARGET_USER="$GREEN_USER"
 else
-  TARGET_HOST="$APP_GREEN_SSH_HOST"
-  TARGET_USER="$APP_GREEN_SSH_USER"
+  echo "Invalid TARGET_COLOR: $TARGET_COLOR"
+  exit 1
 fi
 
 echo "Deploying ${RELEASE_TAG} to ${TARGET_COLOR} (${TARGET_USER}@${TARGET_HOST})"
-ssh ${TARGET_USER}@${TARGET_HOST} "GHCR_USERNAME='${GHCR_USERNAME}' GHCR_TOKEN='${GHCR_TOKEN}' RELEASE_TAG='${RELEASE_TAG}' bash -s" <<'EOF'
+
+ssh -i "$SSH_KEY" "${TARGET_USER}@${TARGET_HOST}" bash <<EOF
 set -euo pipefail
-APP_ROOT="/home/deploy/myproject/app"
-ENV_FILE="${APP_ROOT}/env/app.env"
-COMPOSE_FILE="${APP_ROOT}/docker-compose.yml"
-cd "$APP_ROOT"
 
-echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+APP_DIR="${APP_DIR}"
+ENV_FILE="${ENV_FILE}"
+COMPOSE_FILE="${COMPOSE_FILE}"
+RELEASE_TAG="${RELEASE_TAG}"
+GHCR_USERNAME="${GHCR_USERNAME_CLEAN}"
+GHCR_TOKEN="${GHCR_TOKEN_CLEAN}"
 
-if grep -q '^TAG=' "$ENV_FILE"; then
+cd "\$APP_DIR"
+
+echo "\$GHCR_TOKEN" | docker login ghcr.io -u "\$GHCR_USERNAME" --password-stdin
+
+if [ -f "$ENV_FILE" ]; then
   sed -i "s/^TAG=.*/TAG=${RELEASE_TAG}/" "$ENV_FILE"
 else
-  echo "TAG=${RELEASE_TAG}" >> "$ENV_FILE"
+  echo "Missing $ENV_FILE"
+  exit 1
 fi
+
+echo "Env file found. Current tag value:"
+grep '^TAG=' "$ENV_FILE" || true
 
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
 
-echo "Deployed ${RELEASE_TAG} to idle environment using ${ENV_FILE}."
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config >/dev/null
 EOF
