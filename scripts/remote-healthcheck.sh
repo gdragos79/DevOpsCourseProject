@@ -25,9 +25,28 @@ echo "Running remote smoke tests on ${TARGET_COLOR} (${TARGET_USER}@${TARGET_HOS
 ssh -i "$SSH_KEY" "${TARGET_USER}@${TARGET_HOST}" bash <<'EOF'
 set -euo pipefail
 
-curl -fsS http://127.0.0.1:3000/api/health >/dev/null
-curl -fsS http://127.0.0.1:3000/api/db >/dev/null
-curl -fsSI http://127.0.0.1/ >/dev/null
+echo "Starting smoke tests with retry logic..."
+
+MAX_RETRIES=20
+SLEEP_SECONDS=3
+
+for i in $(seq 1 $MAX_RETRIES); do
+  echo "Attempt $i/$MAX_RETRIES..."
+
+  if curl -fsS http://127.0.0.1:3000/api/health >/dev/null \
+     && curl -fsS http://127.0.0.1:3000/api/db >/dev/null \
+     && curl -fsSI http://127.0.0.1/ >/dev/null; then
+
+    echo "All checks passed ✔"
+    exit 0
+  fi
+
+  echo "Checks not ready yet... waiting ${SLEEP_SECONDS}s"
+  sleep $SLEEP_SECONDS
+done
+
+echo "Smoke tests FAILED after ${MAX_RETRIES} attempts ❌"
+exit 1
 EOF
 
 echo "Frontend, backend health, and DB probe succeeded on ${TARGET_COLOR}"
